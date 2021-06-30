@@ -1,0 +1,7 @@
+apiVersion: kubeflow.org/v1
+kind: TFJob
+metadata:
+  name: tfjob-sample
+spec:
+  # Add fields here
+  foo: bar

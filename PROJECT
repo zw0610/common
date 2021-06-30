@@ -1,0 +1,22 @@
+layout:
+- go.kubebuilder.io/v3
+projectName: common
+repo: github.com/kubeflow/common
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  group: kubeflow.org
+  kind: TFJob
+  path: github.com/kubeflow/common/apis/tensorflow/v1
+  version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  group: kubeflow.org
+  kind: PyTorchJob
+  path: github.com/kubeflow/common/apis/pytorch/v1
+  version: v1
+version: "3"
