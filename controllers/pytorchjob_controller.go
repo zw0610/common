@@ -19,8 +19,11 @@ package controllers
 import (
 	"context"
 	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+	commonctrl "github.com/kubeflow/common/pkg/controller.v1/common"
 	"github.com/kubeflow/common/pkg/util"
+	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,12 +38,9 @@ import (
 type PyTorchJobReconciler struct {
 	client.Client
 	commonv1.ControllerInterface
+	commonctrl.JobController
 	Scheme *runtime.Scheme
 }
-
-var (
-	KeyFunc = cache.DeletionHandlingMetaNamespaceKeyFunc
-)
 
 //+kubebuilder:rbac:groups=kubeflow.org,resources=pytorchjobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kubeflow.org,resources=pytorchjobs/status,verbs=get;update;patch
@@ -108,7 +108,42 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return nil
 	}
 
-	r.
+	// Reconcile PodGroup
+	if r.Config.EnableGangScheduling {
+		minAvailable3Replicas := getTotalReplicas(job)
+		_, err = r.SyncPodGroup(job, minAvailable3Replicas)
+		if err != nil {
+			logger.Warnf("Sync PodGroup %v: %v", job.Name, err)
+		}
+	}
+
+	// Save the current state of the replicas
+	replicasStatus := make(map[string]corev1.PodPhase)
+
+	// Reconcile Pods
+	for rtype, spec := range job.Spec.PyTorchReplicaSpecs {
+		err = r.ReconcilePods(job, pods, rtype, spec, replicasStatus)
+		if err != nil {
+			logger.Warnf("reconcile Pods error %v", err)
+			return ctrl.Result{}, err
+		}
+
+		// Service is in need only for Master
+		if rtype == pytorchv1.PyTorchReplicaTypeMaster {
+			err = r.ReconcileServices(job, services, rtype, spec)
+			if err != nil {
+				logger.Warnf("reconcileServices error %v", err)
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	if !apiequality.Semantic.DeepEqual(*oldStatus, job.Status) {
+		err = r.UpdateJobStatus()
+		if err != nil {
+
+		}
+	}
 
 	return ctrl.Result{}, nil
 }
