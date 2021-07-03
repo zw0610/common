@@ -18,8 +18,10 @@ package main
 
 import (
 	"flag"
-	tensorflowv1 "github.com/kubeflow/common/apis/tensorflow/v1"
 	"os"
+
+	tensorflowv1 "github.com/kubeflow/common/apis/tensorflow/v1"
+	"github.com/kubeflow/common/pkg/reconciler.v1/common"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -87,9 +89,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "TFJob")
 		os.Exit(1)
 	}
+
+	rcConfig := common.MakeDefaultJobReconcilerConfiguration()
+
 	if err = (&controllers.PyTorchJobReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		CommonReconciler: common.MakeCommonReconciler(rcConfig),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PyTorchJob")
 		os.Exit(1)

@@ -18,27 +18,24 @@ package controllers
 
 import (
 	"context"
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
-	commonctrl "github.com/kubeflow/common/pkg/controller.v1/common"
-	"github.com/kubeflow/common/pkg/util"
-	corev1 "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/cache"
 
+	commonapiv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+
+	pytorchv1 "github.com/kubeflow/common/apis/pytorch/v1"
+	"github.com/kubeflow/common/pkg/reconciler.v1/common"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	pytorchv1 "github.com/kubeflow/common/apis/pytorch/v1"
 )
 
 // PyTorchJobReconciler reconciles a PyTorchJob object
 type PyTorchJobReconciler struct {
 	client.Client
-	commonv1.ControllerInterface
-	commonctrl.JobController
+
+	common.CommonReconciler
+
 	Scheme *runtime.Scheme
 }
 
@@ -57,7 +54,7 @@ type PyTorchJobReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
 func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	logger := util.LoggerForKey(req.NamespacedName.String())
+	logger := r.GetLoggerForKey(req.NamespacedName.String())
 
 	var job pytorchv1.PyTorchJob
 	if err := r.Get(ctx, req.NamespacedName, &job); err != nil {
@@ -66,71 +63,72 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	oldStatus := job.Status.DeepCopy()
-	pods, err := r.GetPodsForJob(&job)
+	pods, err := r.GetPodsForJob(ctx, &job)
 	if err != nil {
 		logger.Warnf("getPodsForPyTorchJob error %v", err)
 		return ctrl.Result{}, err
 	}
 
-	services, err := r.GetServicesForJob(job)
+	services, err := r.GetServicesForJob(ctx, &job)
 	if err != nil {
 		logger.Warnf("getServicesForPyTorchJob error %v", err)
 		return ctrl.Result{}, err
 	}
 
 	// If the PyTorchJob is terminated, delete all pods and services.
-	if isSucceeded(job.Status) || isFailed(job.Status) {
-		if err := r.deletePodsAndServices(job, pods, services); err != nil {
-			return err
+	if r.IsJobSucceeded(&job.Status) || r.IsJobFailed(&job.Status) {
+		if err = r.CleaupJob(ctx, &job); err != nil {
+			return ctrl.Result{}, err
 		}
 
-		if err := r.cleanupPyTorchJob(job); err != nil {
-			return err
-		}
-
-		if r.Config.EnableGangScheduling {
-			if err := r.DeletePodGroup(job); err != nil {
-				return err
+		if r.IsGangSchedulingEnabled() {
+			if err = r.DeleteGangSchedulingResources(ctx, &job); err != nil {
+				return ctrl.Result{}, err
 			}
 		}
 
 		// At this point the pods may have been deleted, so if the job succeeded, we need to manually set the replica status.
 		// If any replicas are still Active, set their status to succeeded.
-		if isSucceeded(job.Status) {
+		if r.IsJobSucceeded(&job.Status) {
 			for rtype := range job.Status.ReplicaStatuses {
 				job.Status.ReplicaStatuses[rtype].Succeeded += job.Status.ReplicaStatuses[rtype].Active
 				job.Status.ReplicaStatuses[rtype].Active = 0
 			}
 		}
 		if !apiequality.Semantic.DeepEqual(*oldStatus, job.Status) {
-			return r.updateStatusHandler(job)
+			err = r.UpdateJobStatus(ctx, &job)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
 		}
-		return nil
+		return ctrl.Result{}, nil
 	}
 
 	// Reconcile PodGroup
-	if r.Config.EnableGangScheduling {
-		minAvailable3Replicas := getTotalReplicas(job)
-		_, err = r.SyncPodGroup(job, minAvailable3Replicas)
+	if r.IsGangSchedulingEnabled() {
+		err = r.ReconcileGangSchedulingResources(ctx, &job)
 		if err != nil {
 			logger.Warnf("Sync PodGroup %v: %v", job.Name, err)
 		}
 	}
 
 	// Save the current state of the replicas
-	replicasStatus := make(map[string]corev1.PodPhase)
+	replicasStatus := make(map[commonapiv1.ReplicaType]*commonapiv1.ReplicaSpec)
+	for rtype, spec := range job.Spec.PyTorchReplicaSpecs {
+		replicasStatus[commonapiv1.ReplicaType(rtype)] = spec
+	}
 
 	// Reconcile Pods
-	for rtype, spec := range job.Spec.PyTorchReplicaSpecs {
-		err = r.ReconcilePods(job, pods, rtype, spec, replicasStatus)
+	for rtype, rspec := range replicasStatus {
+		err = r.ReconcilePods(ctx, &job, pods, rtype, replicasStatus)
 		if err != nil {
 			logger.Warnf("reconcile Pods error %v", err)
 			return ctrl.Result{}, err
 		}
 
 		// Service is in need only for Master
-		if rtype == pytorchv1.PyTorchReplicaTypeMaster {
-			err = r.ReconcileServices(job, services, rtype, spec)
+		if string(rtype) == string(pytorchv1.PyTorchReplicaTypeMaster) {
+			err = r.ReconcileServices(ctx, &job, services, rtype, rspec)
 			if err != nil {
 				logger.Warnf("reconcileServices error %v", err)
 				return ctrl.Result{}, err
@@ -139,7 +137,7 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if !apiequality.Semantic.DeepEqual(*oldStatus, job.Status) {
-		err = r.UpdateJobStatus()
+		err = r.UpdateJobStatus(ctx, &job)
 		if err != nil {
 
 		}

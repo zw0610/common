@@ -1,29 +1,39 @@
-package reconciler
+package common
 
 import (
+	"context"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type BaseReconciler interface {
-	ReconcileJob(job interface{}) error
-	GetLoggerForKey(key string)
-	GetPodsForJob(job metav1.Object)
+type CommonReconcilerInterface interface {
+	GetLoggerForKey(key string) *logrus.Entry
+	GetPodsForJob(ctx context.Context, job metav1.Object) ([]*corev1.Pod, error)
+	GetServicesForJob(ctx context.Context, job metav1.Object) ([]*corev1.Service, error)
 	IsJobSucceeded(status *commonv1.JobStatus) bool
 	IsJobFailed(status *commonv1.JobStatus) bool
-	CleanupJob(job metav1.Object) error
-	GetTotalReplicas(job metav1.Object) error
-	UpdateJobStatus(status *commonv1.JobStatus) error
+	IsGangSchedulingEnabled() bool
+	CleaupJob(ctx context.Context, job client.Object) error
+	DeleteGangSchedulingResources(ctx context.Context, job metav1.Object) error
+	ReconcileGangSchedulingResources(ctx context.Context, job metav1.Object) error
+	UpdateJobStatus(ctx context.Context, job client.Object) error
 	// ReconcilePods checks and updates pods for each given ReplicaSpec.
 	// It will requeue the job in case of an error while creating/deleting pods.
 	// Common implementation will be provided and User can still override this to implement their own reconcile logic
-	ReconcilePods(job interface{}, jobStatus *commonv1.JobStatus, pods []*v1.Pod, rtype commonv1.ReplicaType,
-		spec *commonv1.ReplicaSpec, replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec) error
+	ReconcilePods(ctx context.Context, job metav1.Object, pods []*v1.Pod, rtype commonv1.ReplicaType,
+		replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec) error
 
 	// ReconcileServices checks and updates services for each given ReplicaSpec.
 	// It will requeue the job in case of an error while creating/deleting services.
 	// Common implementation will be provided and User can still override this to implement their own reconcile logic
-	ReconcileServices(job metav1.Object, services []*v1.Service, rtype commonv1.ReplicaType,
+	ReconcileServices(ctx context.Context, job metav1.Object, services []*v1.Service, rtype commonv1.ReplicaType,
 		spec *commonv1.ReplicaSpec) error
+
+	GetExpectedServicesForReplicaType(job metav1.Object, rtype commonv1.ReplicaType) ([]*corev1.Service, error)
 }
