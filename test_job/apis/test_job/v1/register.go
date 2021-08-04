@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
 
 var (
@@ -26,6 +27,10 @@ var (
 	SchemeBuilder      runtime.SchemeBuilder
 	localSchemeBuilder = &SchemeBuilder
 	AddToScheme        = localSchemeBuilder.AddToScheme
+
+	GroupVersion2  = schema.GroupVersion{Group: GroupName, Version: GroupVersion}
+	SchemeBuilder2 = &scheme.Builder{GroupVersion: GroupVersion2}
+	AddToScheme2   = SchemeBuilder2.AddToScheme
 )
 
 const (
