@@ -36,7 +36,7 @@ type ReconcilerUtilInterface interface {
 	GetRecorder() record.EventRecorder
 
 	// GetLogger CAN be overridden to customize logger
-	GetLogger() logr.Logger
+	GetLogger(job client.Object) logr.Logger
 
 	// GetScheme CAN be overridden to customize runtime scheme
 	GetScheme() *runtime.Scheme
@@ -80,9 +80,6 @@ type PodInterface interface {
 
 	// GenPodName CAN be overridden to customize Pod name.
 	GenPodName(jobName string, rtype commonv1.ReplicaType, index string) string
-
-	// GetDefaultContainerName CAN be overridden if the default container name is not "kubeflow".
-	GetDefaultContainerName() string
 
 	// GetPodsForJob list all pods with the job.
 	GetPodsForJob(ctx context.Context, job client.Object) ([]*corev1.Pod, error)
@@ -159,8 +156,14 @@ type JobInterface interface {
 	ServiceInterface
 	GangSchedulingInterface
 
+	// GenLabels CAN be overridden to customize generic label generated for Pods and Services
+	GenLabels(jobName string) map[string]string
+
 	// GetGroupNameLabelValue CAN be overridden to customize value used in labels regarding Group of job processed.
 	GetGroupNameLabelValue() string
+
+	// GetDefaultContainerName CAN be overridden if the default container name is not "kubeflow".
+	GetDefaultContainerName() string
 
 	// GetJob MUST be overridden to get jobs with specified kind
 	GetJob(ctx context.Context, req ctrl.Request) (client.Object, error)

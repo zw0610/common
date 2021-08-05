@@ -14,6 +14,6 @@ func MaxInt(x, y int) int {
 }
 
 func GenGeneralName(jobName string, rtype commonv1.ReplicaType, index string) string {
-	n := jobName + "-" + string(rtype) + "-" + index
+	n := jobName + "-" + strings.ToLower(string(rtype)) + "-" + index
 	return strings.Replace(n, "/", "-", -1)
 }

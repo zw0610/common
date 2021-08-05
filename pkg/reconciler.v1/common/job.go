@@ -20,17 +20,17 @@ import (
 	"reflect"
 	"time"
 
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+	"github.com/kubeflow/common/pkg/core"
+	commonutil "github.com/kubeflow/common/pkg/util"
+	"github.com/kubeflow/common/pkg/util/k8sutil"
+
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
-	"github.com/kubeflow/common/pkg/core"
-	commonutil "github.com/kubeflow/common/pkg/util"
-	"github.com/kubeflow/common/pkg/util/k8sutil"
 )
 
 const (
@@ -254,7 +254,7 @@ func (r *KubeflowReconciler) UpdateJobStatus(
 		running := status.Active
 		failed := status.Failed
 
-		logrus.Info("%s=%s, ReplicaType=%s expected=%d, running=%d, succeeded=%d , failed=%d",
+		logrus.Infof("%s=%s, ReplicaType=%s expected=%d, running=%d, succeeded=%d , failed=%d",
 			jobKind, jobNamespacedName, rtype, expected, running, succeeded, failed)
 
 		if r.IsFlagReplicaTypeForJobStatus(rtype) {

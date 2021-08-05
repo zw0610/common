@@ -17,6 +17,11 @@ package common
 import (
 	"context"
 
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+	controllerv1 "github.com/kubeflow/common/pkg/controller.v1/common"
+	commonutil "github.com/kubeflow/common/pkg/util"
+	"github.com/kubeflow/common/pkg/util/k8sutil"
+
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/api/scheduling/v1beta1"
@@ -26,11 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	volcano "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
-
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
-	controllerv1 "github.com/kubeflow/common/pkg/controller.v1/common"
-	commonutil "github.com/kubeflow/common/pkg/util"
-	"github.com/kubeflow/common/pkg/util/k8sutil"
 )
 
 type VolcanoReconciler struct {

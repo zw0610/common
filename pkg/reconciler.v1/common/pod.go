@@ -37,15 +37,15 @@ const DefaultContainerName = "kubeflow"
 var (
 	// Prometheus metrics
 	createdPodsCount = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "created_pods_total",
+		Name: "reconciler_created_pods_total",
 		Help: "The total number of created pods",
 	})
 	deletedPodsCount = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "deleted_pods_total",
+		Name: "reconciler_deleted_pods_total",
 		Help: "The total number of deleted pods",
 	})
 	failedPodsCount = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "failed_pods_total",
+		Name: "reconciler_failed_pods_total",
 		Help: "The total number of failed pods",
 	})
 )

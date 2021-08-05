@@ -16,20 +16,47 @@ package common_test
 
 import (
 	"testing"
+
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+	testjobv1 "github.com/kubeflow/common/test_job/apis/test_job/v1"
+
+	"github.com/kubeflow/common/pkg/reconciler.v1/common"
+	"github.com/kubeflow/common/test_job/reconciler.v1/test_job"
 )
 
 func TestGenLabels(t *testing.T) {
-
-}
-
-func TestGetRecorder(t *testing.T) {
-
-}
-
-func TestGetLogger(t *testing.T) {
-
-}
-
-func TestGetScheme(t *testing.T) {
-
+	type tc struct {
+		testJobName   string
+		expectedLabel map[string]string
+	}
+	testCase := []tc{
+		func() tc {
+			return tc{
+				testJobName: "test/job1",
+				expectedLabel: map[string]string{
+					commonv1.GroupNameLabel: testjobv1.GroupName,
+					commonv1.JobNameLabel:   "test-job1",
+				},
+			}
+		}(),
+	}
+	testReconciler := test_job.TestReconciler{
+		KubeflowReconciler: common.KubeflowReconciler{},
+	}
+	for _, c := range testCase {
+		labels := testReconciler.GenLabels(c.testJobName)
+		if len(labels) != len(c.expectedLabel) {
+			t.Errorf("Expected to get %d labels, got %d labels", len(c.expectedLabel), len(labels))
+			continue
+		}
+		for ek, ev := range c.expectedLabel {
+			if v, ok := labels[ek]; !ok {
+				t.Errorf("Cannot found expected key %s", ek)
+			} else {
+				if ev != v {
+					t.Errorf("Expected to get %s for %s, got %s", ev, ek, v)
+				}
+			}
+		}
+	}
 }

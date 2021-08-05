@@ -17,13 +17,13 @@ package common
 import (
 	"strings"
 
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
 )
 
 func (r *KubeflowReconciler) GenLabels(jobName string) map[string]string {

@@ -17,10 +17,10 @@ package common
 import (
 	"context"
 
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
 )
 
 func (r *KubeflowReconciler) GetJob(ctx context.Context, req ctrl.Request) (client.Object, error) {

@@ -18,6 +18,10 @@ import (
 	"context"
 	"strconv"
 
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+	"github.com/kubeflow/common/pkg/core"
+	commonutil "github.com/kubeflow/common/pkg/util"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
@@ -26,26 +30,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
-	"github.com/kubeflow/common/pkg/core"
-	commonutil "github.com/kubeflow/common/pkg/util"
 )
 
 var (
 	succeededServiceCreationCount = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "succeeded_service_creation_total",
+		Name: "reconciler_succeeded_service_creation_total",
 		Help: "The total number of succeeded service creation",
 	})
 	failedServiceCreationCount = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "failed_service_creation_total",
+		Name: "reconciler_failed_service_creation_total",
 		Help: "The total number of failed service creation",
 	})
 )
 
 // GetPortsFromJob gets the ports of job container. Port could be nil, if distributed communication strategy doesn't need and no other ports that need to be exposed.
 func (r *KubeflowReconciler) GetPortsFromJob(spec *commonv1.ReplicaSpec) (map[string]int32, error) {
-	return core.GetPortsFromJob(spec, r.GetDefaultContainerName())
+	defaultContainerName := r.GetDefaultContainerName()
+	return core.GetPortsFromJob(spec, defaultContainerName)
 }
 
 func (r *KubeflowReconciler) GetServicesForJob(ctx context.Context, job client.Object) ([]*corev1.Service, error) {

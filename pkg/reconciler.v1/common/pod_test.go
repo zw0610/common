@@ -15,70 +15,127 @@
 package common_test
 
 import (
-	"path/filepath"
 	"testing"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	//+kubebuilder:scaffold:imports
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+	"github.com/kubeflow/common/pkg/reconciler.v1/common"
 	testjobv1 "github.com/kubeflow/common/test_job/apis/test_job/v1"
+	"github.com/kubeflow/common/test_job/reconciler.v1/test_job"
+	testutilv1 "github.com/kubeflow/common/test_job/test_util/v1"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var cfg *rest.Config
-var k8sClient client.Client
-var mgr manager.Manager
-var testEnv *envtest.Environment
-
-func TestAPIs(t *testing.T) {
-	RegisterFailHandler(Fail)
-
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
-		[]Reporter{printer.NewlineReporter{}})
+func TestGenPodName(t *testing.T) {
+	type tc struct {
+		testJob      *testjobv1.TestJob
+		testRType    commonv1.ReplicaType
+		testIndex    string
+		expectedName string
+	}
+	testCase := []tc{
+		func() tc {
+			tj := testutilv1.NewTestJob(1)
+			tj.SetName("hello-world")
+			return tc{
+				testJob:      tj,
+				testRType:    commonv1.ReplicaType(testjobv1.TestReplicaTypeWorker),
+				testIndex:    "1",
+				expectedName: "hello-world-worker-1",
+			}
+		}(),
+	}
+	testReconciler := test_job.TestReconciler{
+		KubeflowReconciler: common.KubeflowReconciler{},
+	}
+	for _, c := range testCase {
+		na := testReconciler.GenPodName(c.testJob.GetName(), c.testRType, c.testIndex)
+		if na != c.expectedName {
+			t.Errorf("Expected %s, got %s", c.expectedName, na)
+		}
+	}
 }
 
-var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+func PodInSlice(pod *corev1.Pod, pods []*corev1.Pod) bool {
+	for _, p := range pods {
+		if p.GetNamespace() == pod.GetNamespace() && p.GetName() == pod.GetName() {
+			return true
+		}
 	}
+	return false
+}
 
-	cfg, err := testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
+func TestFilterPodsForReplicaType(t *testing.T) {
+	type tc struct {
+		testPods     []*corev1.Pod
+		testRType    commonv1.ReplicaType
+		expectedPods []*corev1.Pod
+	}
+	testCase := []tc{
+		func() tc {
+			tj := testutilv1.NewTestJob(3)
+			tj.SetName("hello-world")
 
-	err = testjobv1.AddToScheme2(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+			pod0 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod0",
+					Namespace: "default",
+					Labels: map[string]string{
+						commonv1.ReplicaTypeLabel: string(testjobv1.TestReplicaTypeMaster),
+					},
+				},
+				Spec:   corev1.PodSpec{},
+				Status: corev1.PodStatus{},
+			}
 
-	//+kubebuilder:scaffold:scheme
+			pod1 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod1",
+					Namespace: "default",
+					Labels: map[string]string{
+						commonv1.ReplicaTypeLabel: string(testjobv1.TestReplicaTypeWorker),
+					},
+				},
+				Spec:   corev1.PodSpec{},
+				Status: corev1.PodStatus{},
+			}
 
-	mgr, err = ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:         k8sClient.Scheme(),
-		LeaderElection: false,
-	})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(mgr).NotTo(BeNil())
+			pod2 := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod2",
+					Namespace: "default",
+					Labels: map[string]string{
+						commonv1.ReplicaTypeLabel: string(testjobv1.TestReplicaTypeWorker),
+					},
+				},
+				Spec:   corev1.PodSpec{},
+				Status: corev1.PodStatus{},
+			}
 
-	k8sClient = mgr.GetClient()
-	Expect(k8sClient).NotTo(BeNil())
+			allPods := []*corev1.Pod{pod0, pod1, pod2}
+			filteredPods := []*corev1.Pod{pod1, pod2}
 
-}, 60)
+			return tc{
+				testPods:     allPods,
+				testRType:    commonv1.ReplicaType(testjobv1.TestReplicaTypeWorker),
+				expectedPods: filteredPods,
+			}
+		}(),
+	}
+	testReconciler := test_job.TestReconciler{
+		KubeflowReconciler: common.KubeflowReconciler{},
+	}
+	for _, c := range testCase {
+		filtered, err := testReconciler.FilterPodsForReplicaType(c.testPods, c.testRType)
+		if err != nil {
+			t.Errorf("FilterPodsForReplicaType returns error %v", err)
+		}
+		for _, ep := range c.expectedPods {
+			if !PodInSlice(ep, filtered) {
+				t.Errorf("Cannot found expected pod %s", ep.GetName())
+			}
+		}
 
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
-})
+	}
+}
