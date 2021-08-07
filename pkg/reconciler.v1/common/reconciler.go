@@ -17,54 +17,86 @@ package common
 import (
 	"context"
 
-	commonutil "github.com/kubeflow/common/pkg/util"
-
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-type KubeflowReconcilerConfig struct {
-	// Enable gang scheduling by volcano
-	EnableGangScheduling bool
-}
-
-func (r *KubeflowReconciler) GangSchedulingEnabled() bool {
-	return r.Config.EnableGangScheduling
-}
-
-func NewDefaultKubeflowReconcilerConfig() *KubeflowReconcilerConfig {
-	return &KubeflowReconcilerConfig{EnableGangScheduling: true}
-}
+const ReconcilerName = "Kubeflow Reconciler"
 
 // KubeflowReconciler reconciles a KubeflowJob object
 type KubeflowReconciler struct {
-	KubeflowReconcilerInterface
-	client.Client
-	APIReader client.Reader
-	Scheme    *runtime.Scheme
-	Log       logr.Logger
-	recorder  record.EventRecorder
-	counter   *commonutil.Counter
-	Config    *KubeflowReconcilerConfig
+	JobInterface
+	PodInterface
+	ServiceInterface
+	GangSchedulingInterface
+	ReconcilerUtilInterface
 }
 
-func NewKubeflowReconciler(mgr manager.Manager) *KubeflowReconciler {
-	return &KubeflowReconciler{
-		Client:    mgr.GetClient(),
-		APIReader: mgr.GetAPIReader(),
-		Scheme:    mgr.GetScheme(),
-		Log:       log.Log,
-		recorder:  mgr.GetEventRecorderFor(ReconcilerName),
-		counter:   commonutil.NewCounter(),
-		Config:    NewDefaultKubeflowReconcilerConfig(),
-	}
+func BareKubeflowReconciler() *KubeflowReconciler {
+	return &KubeflowReconciler{}
+}
+
+func DefaultKubeflowReconciler(mgr manager.Manager, gangEnable bool) *KubeflowReconciler {
+	kubeflowReconciler := BareKubeflowReconciler()
+
+	// Generate Bare Components
+	jobInter := BareKubeflowJobReconciler(mgr.GetClient())
+	podInter := BareKubeflowPodReconciler(mgr.GetClient())
+	svcInter := BareKubeflowServiceReconciler(mgr.GetClient())
+	gangInter := BareVolcanoReconciler(mgr.GetClient(), nil, gangEnable)
+	utilInter := BareUtilReconciler(mgr.GetEventRecorderFor(kubeflowReconciler.GetReconcilerName()), mgr.GetLogger(), mgr.GetScheme())
+
+	// Assign interfaces for jobInterface
+	jobInter.PodInterface = podInter
+	jobInter.ServiceInterface = svcInter
+	jobInter.GangSchedulingInterface = gangInter
+	jobInter.ReconcilerUtilInterface = utilInter
+
+	// Assign interfaces for podInterface
+	podInter.JobInterface = jobInter
+	podInter.GangSchedulingInterface = gangInter
+	podInter.ReconcilerUtilInterface = utilInter
+
+	// Assign interfaces for svcInterface
+	svcInter.PodInterface = podInter
+	svcInter.JobInterface = jobInter
+	svcInter.ReconcilerUtilInterface = utilInter
+
+	// Assign interfaces for gangInterface
+	gangInter.ReconcilerUtilInterface = utilInter
+
+	// Prepare KubeflowReconciler
+	kubeflowReconciler.JobInterface = jobInter
+	kubeflowReconciler.PodInterface = podInter
+	kubeflowReconciler.ServiceInterface = svcInter
+	kubeflowReconciler.GangSchedulingInterface = gangInter
+	kubeflowReconciler.ReconcilerUtilInterface = utilInter
+
+	return kubeflowReconciler
+}
+
+func (r *KubeflowReconciler) SetJobReconciler(jobReconciler *KubeflowJobReconciler) {
+	r.JobInterface = jobReconciler
+}
+
+func (r *KubeflowReconciler) OverrideForKubeflowReconcilerInterface(
+	ji JobInterface,
+	pi PodInterface,
+	si ServiceInterface,
+	gi GangSchedulingInterface,
+	ui ReconcilerUtilInterface) {
+	r.JobInterface.OverrideForJobInterface(ui, pi, si, gi)
+	r.PodInterface.OverrideForPodInterface(ui, gi, ji)
+	r.ServiceInterface.OverrideForServiceInterface(ui, pi, ji)
+	r.GangSchedulingInterface.OverrideForGangSchedulingInterface(ui)
+}
+
+func (r *KubeflowReconciler) GetReconcilerName() string {
+	return ReconcilerName
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

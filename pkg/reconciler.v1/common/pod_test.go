@@ -46,9 +46,10 @@ func TestGenPodName(t *testing.T) {
 			}
 		}(),
 	}
-	testReconciler := test_job.TestReconciler{
-		KubeflowReconciler: common.KubeflowReconciler{},
-	}
+
+	actualReconciler := test_job.NewTestReconciler()
+	var testReconciler common.KubeflowReconcilerInterface = actualReconciler
+
 	for _, c := range testCase {
 		na := testReconciler.GenPodName(c.testJob.GetName(), c.testRType, c.testIndex)
 		if na != c.expectedName {
@@ -123,9 +124,10 @@ func TestFilterPodsForReplicaType(t *testing.T) {
 			}
 		}(),
 	}
-	testReconciler := test_job.TestReconciler{
-		KubeflowReconciler: common.KubeflowReconciler{},
-	}
+
+	actualReconciler := test_job.NewTestReconciler()
+	var testReconciler common.KubeflowReconcilerInterface = actualReconciler
+
 	for _, c := range testCase {
 		filtered, err := testReconciler.FilterPodsForReplicaType(c.testPods, c.testRType)
 		if err != nil {

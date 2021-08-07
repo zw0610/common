@@ -23,22 +23,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *KubeflowReconciler) GetJob(ctx context.Context, req ctrl.Request) (client.Object, error) {
+func (r *KubeflowJobReconciler) GetJob(ctx context.Context, req ctrl.Request) (client.Object, error) {
 	panic("implement KubeflowReconciler.GetJob!")
 }
 
-func (r *KubeflowReconciler) ExtractReplicasSpec(job client.Object) (map[commonv1.ReplicaType]*commonv1.ReplicaSpec, error) {
+func (r *KubeflowJobReconciler) ExtractReplicasSpec(job client.Object) (map[commonv1.ReplicaType]*commonv1.ReplicaSpec, error) {
 	panic("implement KubeflowReconciler.ExtractReplicasSpec!")
 }
 
-func (r *KubeflowReconciler) ExtractRunPolicy(job client.Object) (*commonv1.RunPolicy, error) {
+func (r *KubeflowJobReconciler) ExtractRunPolicy(job client.Object) (*commonv1.RunPolicy, error) {
 	panic("implement KubeflowReconciler.ExtractRunPolicy")
 }
 
-func (r *KubeflowReconciler) ExtractJobStatus(job client.Object) (*commonv1.JobStatus, error) {
+func (r *KubeflowJobReconciler) ExtractJobStatus(job client.Object) (*commonv1.JobStatus, error) {
 	panic("implement KubeflowReconciler.ExtractJobStatus")
 }
 
-func (r *KubeflowReconciler) IsMasterRole(replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec, rtype commonv1.ReplicaType, index int) bool {
+func (r *KubeflowJobReconciler) IsMasterRole(replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec, rtype commonv1.ReplicaType, index int) bool {
 	panic("implement KubeflowReconciler.IsMasterRole")
 }

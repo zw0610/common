@@ -3,13 +3,16 @@ package test_job
 import (
 	"context"
 
+	"github.com/go-logr/logr"
+
 	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
 	common_reconciler "github.com/kubeflow/common/pkg/reconciler.v1/common"
 	v1 "github.com/kubeflow/common/test_job/apis/test_job/v1"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -18,11 +21,62 @@ var _ common_reconciler.KubeflowReconcilerInterface = &TestReconciler{}
 
 type TestReconciler struct {
 	common_reconciler.KubeflowReconciler
+	DC       *DummyClient
 	Job      *v1.TestJob
 	Pods     []*corev1.Pod
 	Services []*corev1.Service
 	PodGroup client.Object
-	Cache    []client.Object
+}
+
+func NewTestReconciler() *TestReconciler {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(v1.AddToScheme(scheme))
+
+	kubeflowReconciler := common_reconciler.BareKubeflowReconciler()
+
+	dummy_client := &DummyClient{}
+
+	// Generate Bare Components
+	jobInter := common_reconciler.BareKubeflowJobReconciler(dummy_client)
+	podInter := common_reconciler.BareKubeflowPodReconciler(dummy_client)
+	svcInter := common_reconciler.BareKubeflowServiceReconciler(dummy_client)
+	gangInter := common_reconciler.BareVolcanoReconciler(dummy_client, nil, true)
+	utilInter := common_reconciler.BareUtilReconciler(nil, logr.FromContext(context.Background()), scheme)
+
+	// Assign interfaces for jobInterface
+	jobInter.PodInterface = podInter
+	jobInter.ServiceInterface = svcInter
+	jobInter.GangSchedulingInterface = gangInter
+	jobInter.ReconcilerUtilInterface = utilInter
+
+	// Assign interfaces for podInterface
+	podInter.JobInterface = jobInter
+	podInter.GangSchedulingInterface = gangInter
+	podInter.ReconcilerUtilInterface = utilInter
+
+	// Assign interfaces for svcInterface
+	svcInter.PodInterface = podInter
+	svcInter.JobInterface = jobInter
+	svcInter.ReconcilerUtilInterface = utilInter
+
+	// Assign interfaces for gangInterface
+	gangInter.ReconcilerUtilInterface = utilInter
+
+	// Prepare KubeflowReconciler
+	kubeflowReconciler.JobInterface = jobInter
+	kubeflowReconciler.PodInterface = podInter
+	kubeflowReconciler.ServiceInterface = svcInter
+	kubeflowReconciler.GangSchedulingInterface = gangInter
+	kubeflowReconciler.ReconcilerUtilInterface = utilInter
+
+	testReconciler := &TestReconciler{
+		KubeflowReconciler: *kubeflowReconciler,
+		DC:                 dummy_client,
+	}
+	testReconciler.OverrideForKubeflowReconcilerInterface(testReconciler, testReconciler, testReconciler, testReconciler, nil)
+
+	return testReconciler
 }
 
 func (r *TestReconciler) GetJob(ctx context.Context, req ctrl.Request) (client.Object, error) {
@@ -43,37 +97,6 @@ func (r *TestReconciler) GetPodsForJob(ctx context.Context, job client.Object) (
 
 func (r *TestReconciler) GetServicesForJob(ctx context.Context, job client.Object) ([]*corev1.Service, error) {
 	return r.Services, nil
-}
-
-func (r *TestReconciler) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	r.Cache = append(r.Cache, obj)
-	return nil
-}
-
-func (r *TestReconciler) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-	for idx, o := range r.Cache {
-		if o.GetName() == obj.GetName() && o.GetNamespace() == obj.GetNamespace() && o.GetObjectKind() == obj.GetObjectKind() {
-			r.Cache = append(r.Cache[:idx], r.Cache[idx+1:]...)
-			return nil
-		}
-	}
-	return errors.NewNotFound(schema.GroupResource{
-		Group:    obj.GetObjectKind().GroupVersionKind().Group,
-		Resource: obj.GetSelfLink(),
-	}, obj.GetName())
-}
-
-func (r *TestReconciler) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-	for idx, o := range r.Cache {
-		if o.GetName() == obj.GetName() && o.GetNamespace() == obj.GetNamespace() && o.GetObjectKind() == obj.GetObjectKind() {
-			r.Cache[idx] = obj
-			return nil
-		}
-	}
-	return errors.NewNotFound(schema.GroupResource{
-		Group:    obj.GetObjectKind().GroupVersionKind().Group,
-		Resource: obj.GetSelfLink(),
-	}, obj.GetName())
 }
 
 func (r *TestReconciler) ExtractReplicasSpec(job client.Object) (map[commonv1.ReplicaType]*commonv1.ReplicaSpec, error) {

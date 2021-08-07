@@ -50,15 +50,38 @@ var (
 	})
 )
 
-func (r *KubeflowReconciler) GenPodName(jobName string, rtype commonv1.ReplicaType, index string) string {
+type KubeflowPodReconciler struct {
+	client.Client
+	ReconcilerUtilInterface
+	GangSchedulingInterface
+	JobInterface
+}
+
+func (r *KubeflowPodReconciler) OverrideForPodInterface(ui ReconcilerUtilInterface, gi GangSchedulingInterface, ji JobInterface) {
+	if ui != nil {
+		r.ReconcilerUtilInterface = ui
+	}
+	if ji != nil {
+		r.JobInterface = ji
+	}
+	if gi != nil {
+		r.GangSchedulingInterface = gi
+	}
+}
+
+func BareKubeflowPodReconciler(client client.Client) *KubeflowPodReconciler {
+	return &KubeflowPodReconciler{Client: client}
+}
+
+func (r *KubeflowPodReconciler) GenPodName(jobName string, rtype commonv1.ReplicaType, index string) string {
 	return core.GenGeneralName(jobName, rtype, index)
 }
 
-func (r *KubeflowReconciler) GetDefaultContainerName() string {
+func (r *KubeflowPodReconciler) GetDefaultContainerName() string {
 	return DefaultContainerName
 }
 
-func (r *KubeflowReconciler) GetPodsForJob(ctx context.Context, job client.Object) ([]*corev1.Pod, error) {
+func (r *KubeflowPodReconciler) GetPodsForJob(ctx context.Context, job client.Object) ([]*corev1.Pod, error) {
 	podList := &corev1.PodList{}
 	err := r.List(ctx, podList, client.MatchingLabels(r.GenLabels(job.GetName())))
 	if err != nil {
@@ -71,33 +94,18 @@ func (r *KubeflowReconciler) GetPodsForJob(ctx context.Context, job client.Objec
 	}
 
 	return pods, nil
-	// TODO: (zw0610) adding controller reference management
-	//// If any adoptions are attempted, we should first recheck for deletion
-	//// with an uncached quorum read sometime after listing Pods (see #42639).
-	//canAdoptFunc := RecheckDeletionTimestamp(func() (metav1.Object, error) {
-	//	fresh := r.EmptyJob()
-	//	err = r.APIReader.Get(ctx, types.NamespacedName{Namespace: job.GetNamespace(), Name: job.GetName()}, fresh)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	if fresh.GetUID() != job.GetUID() {
-	//		return nil, fmt.Errorf("original Job %v/%v is gone: got uid %v, wanted %v", job.GetNamespace(), job.GetName(), fresh.GetUID(), job.GetUID())
-	//	}
-	//	return fresh, nil
-	//})
-	//cm := control.NewPodControllerRefManager(jc.PodControl, job, selector, r.GetAPIGroupVersionKind(), canAdoptFunc)
-	//return cm.ClaimPods(pods)
+	// TODO: (zw0610) adding Claiming Pods
 }
 
-func (r *KubeflowReconciler) GetPodSlices(pods []*corev1.Pod, replicas int, logger *log.Entry) [][]*corev1.Pod {
+func (r *KubeflowPodReconciler) GetPodSlices(pods []*corev1.Pod, replicas int, logger *log.Entry) [][]*corev1.Pod {
 	return core.GetPodSlices(pods, replicas, logger)
 }
 
-func (r *KubeflowReconciler) FilterPodsForReplicaType(pods []*corev1.Pod, replicaType commonv1.ReplicaType) ([]*corev1.Pod, error) {
+func (r *KubeflowPodReconciler) FilterPodsForReplicaType(pods []*corev1.Pod, replicaType commonv1.ReplicaType) ([]*corev1.Pod, error) {
 	return core.FilterPodsForReplicaType(pods, replicaType)
 }
 
-func (r *KubeflowReconciler) ReconcilePods(
+func (r *KubeflowPodReconciler) ReconcilePods(
 	ctx context.Context,
 	job client.Object,
 	jobStatus *commonv1.JobStatus,
@@ -156,7 +164,7 @@ func (r *KubeflowReconciler) ReconcilePods(
 				if status.Name == r.GetDefaultContainerName() && state.Terminated != nil {
 					exitCode = state.Terminated.ExitCode
 					logger.Infof("Pod: %v.%v exited with code %v", pod.Namespace, pod.Name, exitCode)
-					r.recorder.Eventf(job, corev1.EventTypeNormal, "ExitedWithCode", "Pod: %v.%v exited with code %v", pod.Namespace, pod.Name, exitCode)
+					r.GetRecorder().Eventf(job, corev1.EventTypeNormal, "ExitedWithCode", "Pod: %v.%v exited with code %v", pod.Namespace, pod.Name, exitCode)
 				}
 			}
 			// Check if the pod is retryable.
@@ -177,7 +185,7 @@ func (r *KubeflowReconciler) ReconcilePods(
 
 }
 
-func (r *KubeflowReconciler) CreateNewPod(job client.Object, rt commonv1.ReplicaType, index string,
+func (r *KubeflowPodReconciler) CreateNewPod(job client.Object, rt commonv1.ReplicaType, index string,
 	spec *commonv1.ReplicaSpec, masterRole bool, replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec) error {
 
 	logger := commonutil.LoggerForReplica(job, rt)
@@ -192,6 +200,7 @@ func (r *KubeflowReconciler) CreateNewPod(job client.Object, rt commonv1.Replica
 	podTemplate := spec.Template.DeepCopy()
 
 	podTemplate.Name = r.GenPodName(job.GetName(), rt, index)
+	podTemplate.Namespace = job.GetNamespace()
 	if podTemplate.Labels == nil {
 		podTemplate.Labels = make(map[string]string)
 	}
@@ -203,7 +212,7 @@ func (r *KubeflowReconciler) CreateNewPod(job client.Object, rt commonv1.Replica
 	if podTemplate.Spec.RestartPolicy != corev1.RestartPolicy("") {
 		errMsg := "Restart policy in pod template will be overwritten by restart policy in replica spec"
 		logger.Warning(errMsg)
-		r.recorder.Event(job, corev1.EventTypeWarning, "SettedPodTemplateRestartPolicy", errMsg)
+		r.GetRecorder().Event(job, corev1.EventTypeWarning, "SettedPodTemplateRestartPolicy", errMsg)
 	}
 	if spec.RestartPolicy == commonv1.RestartPolicyExitCode {
 		podTemplate.Spec.RestartPolicy = corev1.RestartPolicyNever
@@ -237,7 +246,7 @@ func (r *KubeflowReconciler) CreateNewPod(job client.Object, rt commonv1.Replica
 	return nil
 }
 
-func (r *KubeflowReconciler) DeletePod(ctx context.Context, ns string, name string) error {
+func (r *KubeflowPodReconciler) DeletePod(ctx context.Context, ns string, name string) error {
 	pod := &corev1.Pod{}
 	pod.Name = name
 	pod.Namespace = ns
@@ -248,7 +257,7 @@ func (r *KubeflowReconciler) DeletePod(ctx context.Context, ns string, name stri
 	return err
 }
 
-func (r *KubeflowReconciler) DecoratePod(rtype commonv1.ReplicaType, podTemplate *corev1.PodTemplateSpec, job client.Object) {
+func (r *KubeflowPodReconciler) DecoratePod(rtype commonv1.ReplicaType, podTemplate *corev1.PodTemplateSpec, job client.Object) {
 	// Default implementation applies nothing to podTemplate
 	return
 }

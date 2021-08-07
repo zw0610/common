@@ -40,6 +40,7 @@ func TestCreateNewService(t *testing.T) {
 		func() tc {
 			tj := test_utilv1.NewTestJob(3)
 			jobName := "testjob1"
+			tj.SetName(jobName)
 			idx := "0"
 			svc := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -71,10 +72,8 @@ func TestCreateNewService(t *testing.T) {
 			}
 		}(),
 	}
-	actualReconciler := test_job.TestReconciler{
-		KubeflowReconciler: common.KubeflowReconciler{},
-	}
-	var testReconciler common.KubeflowReconcilerInterface = &actualReconciler
+	actualReconciler := test_job.NewTestReconciler()
+	var testReconciler common.KubeflowReconcilerInterface = actualReconciler
 
 	for _, c := range testCase {
 		err := testReconciler.CreateNewService(c.testJob, c.testRType, c.testSpec, c.testIndex)
@@ -84,7 +83,7 @@ func TestCreateNewService(t *testing.T) {
 		}
 
 		found := false
-		for _, obj := range actualReconciler.Cache {
+		for _, obj := range actualReconciler.DC.Cache {
 			if obj.GetName() == c.expectedService.GetName() && obj.GetNamespace() == c.expectedService.GetNamespace() {
 				found = true
 				svcCreated := obj.(*corev1.Service)

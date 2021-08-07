@@ -15,10 +15,6 @@
 package common
 
 import (
-	"strings"
-
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
-
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,26 +22,33 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *KubeflowReconciler) GenLabels(jobName string) map[string]string {
-	labelGroupName := commonv1.GroupNameLabel
-	labelJobName := commonv1.JobNameLabel
-	groupName := r.GetGroupNameLabelValue()
-	return map[string]string{
-		labelGroupName: groupName,
-		labelJobName:   strings.Replace(jobName, "/", "-", -1),
+type ReconcilerUtil struct {
+	Recorder record.EventRecorder
+	Log      logr.Logger
+	Scheme   *runtime.Scheme
+}
+
+func BareUtilReconciler(
+	recorder record.EventRecorder,
+	log logr.Logger,
+	scheme *runtime.Scheme) *ReconcilerUtil {
+	return &ReconcilerUtil{
+		Recorder: recorder,
+		Log:      log,
+		Scheme:   scheme,
 	}
 }
 
-func (r *KubeflowReconciler) GetRecorder() record.EventRecorder {
-	return r.recorder
+func (r *ReconcilerUtil) GetRecorder() record.EventRecorder {
+	return r.Recorder
 }
 
-func (r *KubeflowReconciler) GetLogger(job client.Object) logr.Logger {
+func (r *ReconcilerUtil) GetLogger(job client.Object) logr.Logger {
 	return r.Log.WithValues(
 		job.GetObjectKind().GroupVersionKind().Kind,
 		types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}.String())
 }
 
-func (r *KubeflowReconciler) GetScheme() *runtime.Scheme {
+func (r *ReconcilerUtil) GetScheme() *runtime.Scheme {
 	return r.Scheme
 }

@@ -17,6 +17,8 @@ package common
 import (
 	"context"
 
+	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
+
 	"github.com/go-logr/logr"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -25,8 +27,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
 )
 
 // ReconcilerUtilInterface defines the abstract interface of reconciler on utility features, such like get event
@@ -45,7 +45,10 @@ type ReconcilerUtilInterface interface {
 // GangSchedulingInterface defines the abstract interface for gang-scheduling related actions, such like get, create or
 // delete PodGroup
 type GangSchedulingInterface interface {
-	ReconcilerUtilInterface
+	OverrideForGangSchedulingInterface(ui ReconcilerUtilInterface)
+
+	// GangSchedulingEnabled CAN be overridden if definition of gang-scheduling enabling changes.
+	GangSchedulingEnabled() bool
 
 	// GetGangSchedulerName CAN be overridden to customize the name of gang scheduler. This name will be used to check
 	// the value of podTemplateSpec.Spec.SchedulerName. For volcano, it is "volcano".
@@ -76,7 +79,10 @@ type GangSchedulingInterface interface {
 
 // PodInterface defines the abstract interface for Pod related actions, such like get, create or delete Pod
 type PodInterface interface {
-	ReconcilerUtilInterface
+	OverrideForPodInterface(ui ReconcilerUtilInterface, gi GangSchedulingInterface, ji JobInterface)
+
+	// GetDefaultContainerName CAN be overridden if the default container name is not "kubeflow".
+	GetDefaultContainerName() string
 
 	// GenPodName CAN be overridden to customize Pod name.
 	GenPodName(jobName string, rtype commonv1.ReplicaType, index string) string
@@ -114,7 +120,7 @@ type PodInterface interface {
 
 // ServiceInterface defines the abstract interface for Pod related actions, such like get, create or delete Service
 type ServiceInterface interface {
-	ReconcilerUtilInterface
+	OverrideForServiceInterface(ui ReconcilerUtilInterface, pi PodInterface, ji JobInterface)
 
 	// GetPortsFromJob CAN be overridden to customize how to find ports defined in the ReplicasSpec.
 	GetPortsFromJob(spec *commonv1.ReplicaSpec) (map[string]int32, error)
@@ -148,22 +154,15 @@ type ServiceInterface interface {
 }
 
 // JobInterface defines the abstract interface for Pod related actions, such like get, create or delete TFJob,
-// PyTorchJob or KFJob
+// PyTorchJob or KFJob, etc.
 type JobInterface interface {
-	ReconcilerUtilInterface
-
-	PodInterface
-	ServiceInterface
-	GangSchedulingInterface
+	OverrideForJobInterface(ui ReconcilerUtilInterface, pi PodInterface, si ServiceInterface, gi GangSchedulingInterface)
 
 	// GenLabels CAN be overridden to customize generic label generated for Pods and Services
 	GenLabels(jobName string) map[string]string
 
 	// GetGroupNameLabelValue CAN be overridden to customize value used in labels regarding Group of job processed.
 	GetGroupNameLabelValue() string
-
-	// GetDefaultContainerName CAN be overridden if the default container name is not "kubeflow".
-	GetDefaultContainerName() string
 
 	// GetJob MUST be overridden to get jobs with specified kind
 	GetJob(ctx context.Context, req ctrl.Request) (client.Object, error)
@@ -234,10 +233,15 @@ type JobInterface interface {
 	PastActiveDeadline(runPolicy *commonv1.RunPolicy, jobStatus *commonv1.JobStatus) bool
 }
 
+// KubeflowReconcilerInterface defines the abstract interface for a base reconciler for kubeflow jobs.
 type KubeflowReconcilerInterface interface {
+	JobInterface
+	PodInterface
+	ServiceInterface
+	GangSchedulingInterface
 	ReconcilerUtilInterface
 
-	JobInterface
+	OverrideForKubeflowReconcilerInterface(ji JobInterface, pi PodInterface, si ServiceInterface, gi GangSchedulingInterface, ui ReconcilerUtilInterface)
 
 	// GetReconcilerName SHOULD be overridden if a new Reconciler is defined. The default implementation returns
 	// "Kubeflow Reconciler"

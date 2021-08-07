@@ -19,7 +19,11 @@ import (
 )
 
 type BaseGangReconciler struct {
-	GangSchedulingInterface
+	Enabled bool
+}
+
+func (r *BaseGangReconciler) GangSchedulingEnabled() bool {
+	return r.Enabled
 }
 
 func (r *BaseGangReconciler) GetPodGroupName(job client.Object) string {

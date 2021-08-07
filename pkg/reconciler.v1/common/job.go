@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	commonv1 "github.com/kubeflow/common/pkg/apis/common/v1"
@@ -34,8 +35,7 @@ import (
 )
 
 const (
-	ReconcilerName = "Kubeflow Reconciler"
-	GroupName      = "kubeflow.org"
+	GroupName = "kubeflow.org"
 
 	ReasonKey        = "reason"
 	ReasonJobDeleted = "job deleted"
@@ -62,15 +62,52 @@ const (
 	WarnNotCountedInBackoffLimit      = "The restart policy of replica %v of the job %v is not OnFailure or Always. Not counted in backoff limit."
 )
 
-func (r *KubeflowReconciler) GetReconcilerName() string {
-	return ReconcilerName
+type KubeflowJobReconciler struct {
+	client.Client
+	ReconcilerUtilInterface
+	PodInterface
+	ServiceInterface
+	GangSchedulingInterface
+	counter *commonutil.Counter
 }
 
-func (r *KubeflowReconciler) GetGroupNameLabelValue() string {
+func BareKubeflowJobReconciler(client client.Client) *KubeflowJobReconciler {
+	return &KubeflowJobReconciler{
+		Client:  client,
+		counter: commonutil.NewCounter(),
+	}
+}
+
+func (r *KubeflowJobReconciler) OverrideForJobInterface(ui ReconcilerUtilInterface, pi PodInterface, si ServiceInterface, gi GangSchedulingInterface) {
+	if ui != nil {
+		r.ReconcilerUtilInterface = ui
+	}
+	if pi != nil {
+		r.PodInterface = pi
+	}
+	if si != nil {
+		r.ServiceInterface = si
+	}
+	if gi != nil {
+		r.GangSchedulingInterface = gi
+	}
+}
+
+func (r *KubeflowJobReconciler) GenLabels(jobName string) map[string]string {
+	labelGroupName := commonv1.GroupNameLabel
+	labelJobName := commonv1.JobNameLabel
+	groupName := r.GetGroupNameLabelValue()
+	return map[string]string{
+		labelGroupName: groupName,
+		labelJobName:   strings.Replace(jobName, "/", "-", -1),
+	}
+}
+
+func (r *KubeflowJobReconciler) GetGroupNameLabelValue() string {
 	return GroupName
 }
 
-func (r *KubeflowReconciler) ReconcileJob(
+func (r *KubeflowJobReconciler) ReconcileJob(
 	ctx context.Context,
 	job client.Object,
 	replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec,
@@ -169,7 +206,7 @@ func (r *KubeflowReconciler) ReconcileJob(
 			r.SetStatusForSuccessJob(status)
 		}
 
-		r.recorder.Event(job, corev1.EventTypeNormal, commonutil.JobFailedReason, failureMessage)
+		r.GetRecorder().Event(job, corev1.EventTypeNormal, commonutil.JobFailedReason, failureMessage)
 
 		if err = commonutil.UpdateJobConditions(status, commonv1.JobFailed, commonutil.JobFailedReason, failureMessage); err != nil {
 			logrus.Infof(ErrAppendJobConditionTemplate, err)
@@ -216,22 +253,22 @@ func (r *KubeflowReconciler) ReconcileJob(
 	return nil
 }
 
-func (r *KubeflowReconciler) DeleteJob(job client.Object) error {
+func (r *KubeflowJobReconciler) DeleteJob(job client.Object) error {
 	return r.Delete(context.Background(), job)
 }
 
-func (r *KubeflowReconciler) RecordAbnormalPods(activePods []*corev1.Pod, object client.Object) {
-	core.RecordAbnormalPods(activePods, object, r.recorder)
+func (r *KubeflowJobReconciler) RecordAbnormalPods(activePods []*corev1.Pod, object client.Object) {
+	core.RecordAbnormalPods(activePods, object, r.GetRecorder())
 }
 
-func (r *KubeflowReconciler) SetStatusForSuccessJob(status *commonv1.JobStatus) {
+func (r *KubeflowJobReconciler) SetStatusForSuccessJob(status *commonv1.JobStatus) {
 	for rytpe := range status.ReplicaStatuses {
 		status.ReplicaStatuses[rytpe].Succeeded += status.ReplicaStatuses[rytpe].Active
 		status.ReplicaStatuses[rytpe].Active = 0
 	}
 }
 
-func (r *KubeflowReconciler) UpdateJobStatus(
+func (r *KubeflowJobReconciler) UpdateJobStatus(
 	job client.Object,
 	replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec,
 	jobStatus *commonv1.JobStatus) error {
@@ -270,7 +307,7 @@ func (r *KubeflowReconciler) UpdateJobStatus(
 			if expected == 0 {
 				msg := fmt.Sprintf("%s %s is successfully completed.", jobKind, jobNamespacedName)
 				logrus.Info(msg)
-				r.recorder.Event(job, corev1.EventTypeNormal, commonutil.JobSucceededReason, msg)
+				r.GetRecorder().Event(job, corev1.EventTypeNormal, commonutil.JobSucceededReason, msg)
 				if jobStatus.CompletionTime == nil {
 					now := metav1.Now()
 					jobStatus.CompletionTime = &now
@@ -287,7 +324,7 @@ func (r *KubeflowReconciler) UpdateJobStatus(
 			if spec.RestartPolicy == commonv1.RestartPolicyExitCode {
 				msg := fmt.Sprintf("%s %s is restarting because %d %s replica(s) failed.",
 					jobKind, jobNamespacedName, failed, rtype)
-				r.recorder.Event(job, corev1.EventTypeWarning, commonutil.JobRestartingReason, msg)
+				r.GetRecorder().Event(job, corev1.EventTypeWarning, commonutil.JobRestartingReason, msg)
 				err := commonutil.UpdateJobConditions(jobStatus, commonv1.JobRestarting, commonutil.JobRestartingReason, msg)
 				if err != nil {
 					logger.Info(ErrAppendJobConditionTemplate, err)
@@ -321,11 +358,11 @@ func (r *KubeflowReconciler) UpdateJobStatus(
 	return nil
 }
 
-func (r *KubeflowReconciler) UpdateJobStatusInAPIServer(ctx context.Context, job client.Object) error {
+func (r *KubeflowJobReconciler) UpdateJobStatusInAPIServer(ctx context.Context, job client.Object) error {
 	return r.Status().Update(ctx, job)
 }
 
-func (r *KubeflowReconciler) CleanupResources(runPolicy *commonv1.RunPolicy, status commonv1.JobStatus, job client.Object) error {
+func (r *KubeflowJobReconciler) CleanupResources(runPolicy *commonv1.RunPolicy, status commonv1.JobStatus, job client.Object) error {
 	if *runPolicy.CleanPodPolicy == commonv1.CleanPodPolicyNone {
 		return nil
 	}
@@ -366,7 +403,7 @@ func (r *KubeflowReconciler) CleanupResources(runPolicy *commonv1.RunPolicy, sta
 	return nil
 }
 
-func (r *KubeflowReconciler) CleanupJob(runPolicy *commonv1.RunPolicy, status commonv1.JobStatus, job client.Object) error {
+func (r *KubeflowJobReconciler) CleanupJob(runPolicy *commonv1.RunPolicy, status commonv1.JobStatus, job client.Object) error {
 	currentTime := time.Now()
 
 	ttl := runPolicy.TTLSecondsAfterFinished
@@ -394,29 +431,29 @@ func (r *KubeflowReconciler) CleanupJob(runPolicy *commonv1.RunPolicy, status co
 	return nil
 }
 
-func (r *KubeflowReconciler) IsFlagReplicaTypeForJobStatus(rtype commonv1.ReplicaType) bool {
+func (r *KubeflowJobReconciler) IsFlagReplicaTypeForJobStatus(rtype commonv1.ReplicaType) bool {
 	logrus.Warnf(WarnDefaultImplementationTemplate, "IsFlagReplicaTypeForJobStatus")
 	return true
 }
 
-func (r *KubeflowReconciler) IsJobSucceeded(status commonv1.JobStatus) bool {
+func (r *KubeflowJobReconciler) IsJobSucceeded(status commonv1.JobStatus) bool {
 	return commonutil.IsSucceeded(status)
 }
 
-func (r *KubeflowReconciler) IsJobFailed(status commonv1.JobStatus) bool {
+func (r *KubeflowJobReconciler) IsJobFailed(status commonv1.JobStatus) bool {
 	return commonutil.IsFailed(status)
 }
 
-func (r *KubeflowReconciler) ShouldCleanUp(status commonv1.JobStatus) bool {
+func (r *KubeflowJobReconciler) ShouldCleanUp(status commonv1.JobStatus) bool {
 	return r.IsJobSucceeded(status) || r.IsJobFailed(status)
 }
 
-func (r *KubeflowReconciler) PastBackoffLimit(jobName string, runPolicy *commonv1.RunPolicy,
+func (r *KubeflowJobReconciler) PastBackoffLimit(jobName string, runPolicy *commonv1.RunPolicy,
 	replicas map[commonv1.ReplicaType]*commonv1.ReplicaSpec, pods []*corev1.Pod) (bool, error) {
 	return core.PastBackoffLimit(jobName, runPolicy, replicas, pods, r.FilterPodsForReplicaType)
 }
 
 // PastActiveDeadline checks if job has ActiveDeadlineSeconds field set and if it is exceeded.
-func (r *KubeflowReconciler) PastActiveDeadline(runPolicy *commonv1.RunPolicy, jobStatus *commonv1.JobStatus) bool {
+func (r *KubeflowJobReconciler) PastActiveDeadline(runPolicy *commonv1.RunPolicy, jobStatus *commonv1.JobStatus) bool {
 	return core.PastActiveDeadline(runPolicy, *jobStatus)
 }

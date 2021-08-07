@@ -40,9 +40,10 @@ func TestGenLabels(t *testing.T) {
 			}
 		}(),
 	}
-	testReconciler := test_job.TestReconciler{
-		KubeflowReconciler: common.KubeflowReconciler{},
-	}
+
+	actualReconciler := test_job.NewTestReconciler()
+	var testReconciler common.KubeflowReconcilerInterface = actualReconciler
+
 	for _, c := range testCase {
 		labels := testReconciler.GenLabels(c.testJobName)
 		if len(labels) != len(c.expectedLabel) {

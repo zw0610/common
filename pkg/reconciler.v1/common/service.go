@@ -43,13 +43,38 @@ var (
 	})
 )
 
+type KubeflowServiceReconciler struct {
+	client.Client
+	ReconcilerUtilInterface
+	PodInterface
+	JobInterface
+}
+
+func BareKubeflowServiceReconciler(client client.Client) *KubeflowServiceReconciler {
+	return &KubeflowServiceReconciler{
+		Client: client,
+	}
+}
+
+func (r *KubeflowServiceReconciler) OverrideForServiceInterface(ui ReconcilerUtilInterface, pi PodInterface, ji JobInterface) {
+	if ui != nil {
+		r.ReconcilerUtilInterface = ui
+	}
+	if pi != nil {
+		r.PodInterface = pi
+	}
+	if ji != nil {
+		r.JobInterface = ji
+	}
+}
+
 // GetPortsFromJob gets the ports of job container. Port could be nil, if distributed communication strategy doesn't need and no other ports that need to be exposed.
-func (r *KubeflowReconciler) GetPortsFromJob(spec *commonv1.ReplicaSpec) (map[string]int32, error) {
+func (r *KubeflowServiceReconciler) GetPortsFromJob(spec *commonv1.ReplicaSpec) (map[string]int32, error) {
 	defaultContainerName := r.GetDefaultContainerName()
 	return core.GetPortsFromJob(spec, defaultContainerName)
 }
 
-func (r *KubeflowReconciler) GetServicesForJob(ctx context.Context, job client.Object) ([]*corev1.Service, error) {
+func (r *KubeflowServiceReconciler) GetServicesForJob(ctx context.Context, job client.Object) ([]*corev1.Service, error) {
 	svcList := &corev1.ServiceList{}
 	err := r.List(ctx, svcList, client.MatchingLabels(r.GenLabels(job.GetName())))
 	if err != nil {
@@ -65,16 +90,16 @@ func (r *KubeflowReconciler) GetServicesForJob(ctx context.Context, job client.O
 }
 
 // FilterServicesForReplicaType returns service belong to a replicaType.
-func (r *KubeflowReconciler) FilterServicesForReplicaType(services []*corev1.Service,
+func (r *KubeflowServiceReconciler) FilterServicesForReplicaType(services []*corev1.Service,
 	replicaType commonv1.ReplicaType) ([]*corev1.Service, error) {
 	return core.FilterServicesForReplicaType(services, replicaType)
 }
 
-func (r *KubeflowReconciler) GetServiceSlices(services []*corev1.Service, replicas int, logger *log.Entry) [][]*corev1.Service {
+func (r *KubeflowServiceReconciler) GetServiceSlices(services []*corev1.Service, replicas int, logger *log.Entry) [][]*corev1.Service {
 	return core.GetServiceSlices(services, replicas, logger)
 }
 
-func (r *KubeflowReconciler) ReconcileServices(
+func (r *KubeflowServiceReconciler) ReconcileServices(
 	job client.Object,
 	services []*corev1.Service,
 	rtype commonv1.ReplicaType,
@@ -121,7 +146,7 @@ func (r *KubeflowReconciler) ReconcileServices(
 
 }
 
-func (r *KubeflowReconciler) CreateNewService(job metav1.Object, rtype commonv1.ReplicaType,
+func (r *KubeflowServiceReconciler) CreateNewService(job metav1.Object, rtype commonv1.ReplicaType,
 	spec *commonv1.ReplicaSpec, index string) error {
 
 	// Append ReplicaTypeLabel and ReplicaIndexLabel labels.
@@ -149,6 +174,7 @@ func (r *KubeflowReconciler) CreateNewService(job metav1.Object, rtype commonv1.
 	}
 
 	service.Name = core.GenGeneralName(job.GetName(), rtype, index)
+	service.Namespace = job.GetNamespace()
 	service.Labels = labels
 	// Create OwnerReference.
 	err = controllerutil.SetControllerReference(job, service, r.GetScheme())
@@ -168,7 +194,7 @@ func (r *KubeflowReconciler) CreateNewService(job metav1.Object, rtype commonv1.
 	return nil
 }
 
-func (r *KubeflowReconciler) DeleteService(ns string, name string, job client.Object) error {
+func (r *KubeflowServiceReconciler) DeleteService(ns string, name string, job client.Object) error {
 	svc := &corev1.Service{}
 	svc.Name = name
 	svc.Namespace = ns
@@ -179,7 +205,7 @@ func (r *KubeflowReconciler) DeleteService(ns string, name string, job client.Ob
 	return err
 }
 
-func (r *KubeflowReconciler) DecorateService(rtype commonv1.ReplicaType, podTemplate *corev1.PodTemplateSpec, job client.Object) {
+func (r *KubeflowServiceReconciler) DecorateService(rtype commonv1.ReplicaType, podTemplate *corev1.PodTemplateSpec, job client.Object) {
 	// Default implementation applies nothing to podTemplate
 	return
 }

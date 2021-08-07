@@ -35,6 +35,7 @@ import (
 
 type VolcanoReconciler struct {
 	BaseGangReconciler
+	ReconcilerUtilInterface
 	client.Client
 }
 
@@ -42,15 +43,25 @@ const (
 	VolcanoPodGroupAnnotation = "scheduling.k8s.io/group-name"
 )
 
-func NewVolcanoReconciler(client client.Client) GangSchedulingInterface {
+func BareVolcanoReconciler(client client.Client, bgReconciler *BaseGangReconciler, enabled bool) *VolcanoReconciler {
+	if bgReconciler == nil {
+		bgReconciler = &BaseGangReconciler{}
+	}
+	bgReconciler.Enabled = enabled
 	return &VolcanoReconciler{
-		Client: client,
+		BaseGangReconciler: *bgReconciler,
+		Client:             client,
+	}
+}
+
+func (r *VolcanoReconciler) OverrideForGangSchedulingInterface(ui ReconcilerUtilInterface) {
+	if ui != nil {
+		r.ReconcilerUtilInterface = ui
 	}
 }
 
 func (r *VolcanoReconciler) GetGangSchedulerName() string {
 	return "volcano"
-
 }
 
 func (r *VolcanoReconciler) GetPodGroupForJob(ctx context.Context, job client.Object) (client.Object, error) {
@@ -120,13 +131,15 @@ func (r *VolcanoReconciler) ReconcilePodGroup(
 	err := r.Get(ctx, types.NamespacedName{Namespace: job.GetNamespace(), Name: r.GetPodGroupName(job)}, pg)
 	// If Created, check updates, otherwise create it
 	if err == nil {
-		pg.ObjectMeta = metav1.ObjectMeta{}
 		pg.Spec = pgSpec
 		err = r.Update(ctx, pg)
 	}
 
 	if errors.IsNotFound(err) {
-		pg.ObjectMeta = metav1.ObjectMeta{}
+		pg.ObjectMeta = metav1.ObjectMeta{
+			Name:      r.GetPodGroupName(job),
+			Namespace: job.GetNamespace(),
+		}
 		pg.Spec = pgSpec
 		err = controllerutil.SetControllerReference(job, pg, r.GetScheme())
 		if err == nil {
